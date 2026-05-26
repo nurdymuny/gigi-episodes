@@ -65,15 +65,16 @@ def test_no_changepoints_on_constant_data():
     assert result.count == 0
 
 
-def test_slow_drift_known_limitation():
-    """Slow monotonic drift is a known limitation — algorithm may fire repeatedly.
+def test_slow_drift_localbackend_behavior():
+    """The LocalBackend is the step-detector specialization of GIGI's EPISODIC primitive.
 
-    Documented in algorithm.py docstring. Users with slow-drift data need to
-    raise threshold to 8.0+ and increase min_segment to 30+. The algorithm
-    is calibrated for noisy-step data, not for slow monotonic drift.
+    Slow monotonic drift is what the full GIGI engine handles via fiber-bundle
+    methods (holonomy-of-fiber-mean across the base manifold). For users on the
+    standalone LocalBackend who still want to work with drifty data, raising
+    threshold to 8.0+ and min_segment to 30+ keeps the detector well-behaved.
 
-    This test just confirms the algorithm doesn't go completely haywire on
-    slow drift — it produces a bounded number of detections, not hundreds.
+    This test confirms the algorithm produces a bounded number of detections
+    on slow drift — it stays well-behaved, doesn't go haywire.
     """
     result = detect_changepoints_local(
         make_slow_drift(), threshold=10.0, min_segment=30

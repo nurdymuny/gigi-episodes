@@ -214,29 +214,28 @@ Defaults are calibrated for **clean operational data** — latencies, counts, sc
 
 ---
 
-## What it catches and what it doesn't
+## What you get from the standalone package
 
-### What it catches ✅
+The pure-numpy `LocalBackend` catches:
 
-- **Step changes** in mean (sharp jumps, even buried in noise)
+- **Step changes** in mean (sharp jumps, even buried in noise) — down to roughly $1.5\sigma$ with default threshold
 - **Returns to baseline** after a regime ended
-- **Detectable shifts** down to roughly $1.5\sigma$ with default threshold
+- **Zero false positives on clean signals** (verified — see the noise-rejection example above)
 
-### What the v0 `LocalBackend` misses ❌
+That's enough for **"when did latency drift?", "when did this test start flaking?", "when did the metric in arm B diverge?"** — the daily-driver use cases for change-point detection.
 
-The pure-numpy `LocalBackend` in this package is intentionally narrow — a single windowed mean-difference test in 1-D. Things it doesn't catch:
+## Want more? Upgrade to the GIGI engine
 
-- **Slow drift** — gradual mean shifts over hundreds of points without a sharp inflection. The windowed mean-diff test is fundamentally a *step* detector; drift dies in the noise floor before any single window crosses threshold.
-- **Variance changes without mean changes** — a stretch where σ grows but μ doesn't shift won't trip the test.
-- **Multivariate joint changes** — this is the 1-D specialization; the local backend doesn't see correlations across fields.
+The standalone `LocalBackend` is the simplest specialization of GIGI's `EPISODIC` primitive — a single windowed mean-difference test in 1-D. Pointing at a running GIGI instance via `GigiBackend` (next section) unlocks the engine's full **Kähler-aware fiber-bundle detector**, which adds:
 
-> ### Important: GIGI itself detects all three
->
-> Slow drift in particular is **not outside GIGI's reach** — it's outside this baby v0's reach. The full `GigiBackend` (next section) calls `/brain/episodic` on a GIGI engine, which uses **fiber-bundle drift detection**: drift shows up as **non-trivial holonomy of the fiber as you parallel-transport along the base manifold**, and as a gradient in the fiber's expected value across the base. Once you're modeling data as a fiber bundle, "the mean drifted slowly over time" becomes a *geometric* signal rather than a statistical one, and there are clean operators for measuring it.
->
-> Bee Rosa Davis has been detecting drift with fiber-bundle and fiber-equivalent methods across a decade of work — most recently in **HERALD**, **TESSERA**, and **Geodesic**, and going back to her early academic work. The pattern is the same in each: drift is a *curvature* phenomenon, not a *threshold* phenomenon. The `LocalBackend` is the simplest specialization of that machinery; the GIGI engine exposes the full version.
->
-> Multivariate joint changes and variance-only changes are likewise detected by the engine — the diagonal-Gaussian + L13.7 denominator-floor variants of the Welford fit pick up second-moment shifts that the 1-D mean-diff test misses by construction.
+| Need | What the GIGI engine gives you |
+|---|---|
+| **Slow drift detection** | Gradual mean shifts over hundreds of points — detected as **non-trivial holonomy of the fiber** as you parallel-transport along the base manifold. Once data lives on a fiber bundle, drift is a *geometric* signal (a gradient in the fiber's expected value across base position), not a statistical one. Years-deep capability across HERALD, TESSERA, Geodesic, and earlier work — drift is a *curvature* phenomenon, not a threshold phenomenon. |
+| **Variance-only changes** | Second-moment shifts where σ grows but μ doesn't move, picked up by the L13.3 diagonal-Gaussian fit with L13.7 denominator-floor stability. |
+| **Multivariate joint changes** | Events that are subtle in any single field but clear in the joint distribution across the full fiber. |
+| **Anisotropic noise** | Heteroscedastic detection where the Kähler form sets the metric — different directions get different noise scales, instead of one global σ. |
+
+Each of these is **already built** in the engine. The standalone package is the entry point; GIGI is where the full version lives.
 
 ---
 
@@ -252,9 +251,9 @@ from gigi_episodes import find_changepoints, LocalBackend
 result = find_changepoints(values, backend=LocalBackend())
 ```
 
-### `GigiBackend` (the full engine — drift, variance shifts, multivariate, the lot)
+### `GigiBackend` — wire the same API to the full engine
 
-When you want detection that goes well past simple step changes — slow drift, variance-only shifts, multivariate joint changes, anisotropic noise — point at a running GIGI instance:
+The same `find_changepoints` call, pointed at a running GIGI instance, gives you every capability in the upgrade table above:
 
 ```python
 from gigi_episodes import find_changepoints, GigiBackend
@@ -268,14 +267,7 @@ backend = GigiBackend(
 result = find_changepoints(backend=backend)
 ```
 
-The backend calls GIGI's `/brain/episodic` endpoint, which runs the engine's full **Kähler-aware Welford fit** (with L13.3 diagonal-Gaussian and L13.7 denominator-floor stability) over the bundle's fiber. Under the hood the engine measures:
-
-- **Mean shifts** — same windowed test as the local backend, but multivariate and anisotropic
-- **Drift** — non-trivial holonomy of the fiber's expected value as you transport along the base manifold (this is the part the 1-D LocalBackend can't see)
-- **Variance shifts** — second-moment changes via the diagonal-Gaussian fit
-- **Joint changes** — events that are subtle in any single field but clear in the joint distribution
-
-This is the same fiber-bundle machinery that powers drift detection in HERALD, TESSERA, Geodesic, and the rest of the Davis Geometric stack. The 1-D specialization is the entry point; the engine is the full version.
+The backend calls GIGI's `/brain/episodic` endpoint, which runs the engine's full **Kähler-aware Welford fit** over the bundle's fiber. Same function signature, same result shape, dramatically more powerful detection. The 1-D specialization is the entry point; the engine is the full version.
 
 ---
 
