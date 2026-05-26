@@ -222,11 +222,21 @@ Defaults are calibrated for **clean operational data** — latencies, counts, sc
 - **Returns to baseline** after a regime ended
 - **Detectable shifts** down to roughly $1.5\sigma$ with default threshold
 
-### What it misses ❌
+### What the v0 `LocalBackend` misses ❌
 
-- **Slow drift** (gradual changes over hundreds of points without a sharp inflection) — `gigi-episodes` is a *change-point* detector, not a drift detector. For drift, you want a trend-fit test like Mann-Kendall.
+The pure-numpy `LocalBackend` in this package is intentionally narrow — a single windowed mean-difference test in 1-D. Things it doesn't catch:
+
+- **Slow drift** — gradual mean shifts over hundreds of points without a sharp inflection. The windowed mean-diff test is fundamentally a *step* detector; drift dies in the noise floor before any single window crosses threshold.
 - **Variance changes without mean changes** — a stretch where σ grows but μ doesn't shift won't trip the test.
-- **Multivariate joint changes** — this is the 1-D specialization. For multivariate, fiber-bundle-native detection, use `GigiBackend` (next section) which calls GIGI's full `/brain/episodic`.
+- **Multivariate joint changes** — this is the 1-D specialization; the local backend doesn't see correlations across fields.
+
+> ### Important: GIGI itself detects all three
+>
+> Slow drift in particular is **not outside GIGI's reach** — it's outside this baby v0's reach. The full `GigiBackend` (next section) calls `/brain/episodic` on a GIGI engine, which uses **fiber-bundle drift detection**: drift shows up as **non-trivial holonomy of the fiber as you parallel-transport along the base manifold**, and as a gradient in the fiber's expected value across the base. Once you're modeling data as a fiber bundle, "the mean drifted slowly over time" becomes a *geometric* signal rather than a statistical one, and there are clean operators for measuring it.
+>
+> Bee Rosa Davis has been detecting drift with fiber-bundle and fiber-equivalent methods across a decade of work — most recently in **HERALD**, **TESSERA**, and **Geodesic**, and going back to her early academic work. The pattern is the same in each: drift is a *curvature* phenomenon, not a *threshold* phenomenon. The `LocalBackend` is the simplest specialization of that machinery; the GIGI engine exposes the full version.
+>
+> Multivariate joint changes and variance-only changes are likewise detected by the engine — the diagonal-Gaussian + L13.7 denominator-floor variants of the Welford fit pick up second-moment shifts that the 1-D mean-diff test misses by construction.
 
 ---
 
@@ -242,9 +252,9 @@ from gigi_episodes import find_changepoints, LocalBackend
 result = find_changepoints(values, backend=LocalBackend())
 ```
 
-### `GigiBackend` (the full engine)
+### `GigiBackend` (the full engine — drift, variance shifts, multivariate, the lot)
 
-When you want **multivariate change-point detection** with the engine's full Kähler-aware Welford fit (including L13.3 diagonal-Gaussian and L13.7 denominator-floor stability), point at a running GIGI instance:
+When you want detection that goes well past simple step changes — slow drift, variance-only shifts, multivariate joint changes, anisotropic noise — point at a running GIGI instance:
 
 ```python
 from gigi_episodes import find_changepoints, GigiBackend
@@ -258,7 +268,14 @@ backend = GigiBackend(
 result = find_changepoints(backend=backend)
 ```
 
-The backend calls GIGI's `/brain/episodic` endpoint, which detects change-points jointly across all selected fields with anisotropic noise modeling.
+The backend calls GIGI's `/brain/episodic` endpoint, which runs the engine's full **Kähler-aware Welford fit** (with L13.3 diagonal-Gaussian and L13.7 denominator-floor stability) over the bundle's fiber. Under the hood the engine measures:
+
+- **Mean shifts** — same windowed test as the local backend, but multivariate and anisotropic
+- **Drift** — non-trivial holonomy of the fiber's expected value as you transport along the base manifold (this is the part the 1-D LocalBackend can't see)
+- **Variance shifts** — second-moment changes via the diagonal-Gaussian fit
+- **Joint changes** — events that are subtle in any single field but clear in the joint distribution
+
+This is the same fiber-bundle machinery that powers drift detection in HERALD, TESSERA, Geodesic, and the rest of the Davis Geometric stack. The 1-D specialization is the entry point; the engine is the full version.
 
 ---
 
